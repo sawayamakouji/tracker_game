@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>改善版習慣トラッカーRPG（ステータス保存機能付き）</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000;
+            color: #fff;
+        }
+        .pixel-border {
+            border: 4px solid #fff;
+            box-shadow: 0 0 0 4px #000, 0 0 0 8px #fff;
+        }
+        .pixel-button {
+            background-color: #444;
+            border: none;
+            color: #fff;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .pixel-button:hover {
+            background-color: #666;
+            transform: scale(1.05);
+        }
+        .pixel-button:active {
+            background-color: #222;
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        class ErrorBoundary extends React.Component {
+          constructor(props) {
+            super(props);
+            this.state = { hasError: false };
+          }
+        
+          static getDerivedStateFromError(error) {
+            return { hasError: true };
+          }
+        
+          componentDidCatch(error, errorInfo) {
+            console.error("Uncaught error:", error, errorInfo);
+          }
+        
+          render() {
+            if (this.state.hasError) {
+              return <h1>Something went wrong.</h1>;
+            }
+        
+            return this.props.children;
+          }
+        }
+        
+        function ImprovedHabitTrackerGame() {
+            const [habits, setHabits] = React.useState([]);
+            const [newHabit, setNewHabit] = React.useState({ habitName: '', startDate: '', userName: '', lastChecked: '', streakDays: 0 });
+            const [error, setError] = React.useState(null);
+            const [userStatus, setUserStatus] = React.useState({ userName: '', userLevel: 1, userExp: 0 });
+            const [searchTerm, setSearchTerm] = React.useState('');
+            const [isLoading, setIsLoading] = React.useState(true);
+
+            React.useEffect(() => {
+                fetchHabits();
+                loadUserStatus();
+            }, []);
+
+            const fetchHabits = async () => {
+                try {
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet1');
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        setHabits(data.sort((a, b) => new Date(b.startDate) - new Date(a.startDate)));
+                    } else {
+                        throw new Error('Data is not an array');
+                    }
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    setError('データの取得中にエラーが発生しました。もう一度お試しください。');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const loadUserStatus = async () => {
+                try {
+                    const storedUserName = localStorage.getItem('userName');
+                    if (storedUserName) {
+                        const response = await fetch(`https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2?search={"userName":"${storedUserName}"}`);
+                        const data = await response.json();
+                        if (data.length > 0) {
+                            setUserStatus({
+                                userName: data[0].userName,
+                                userLevel: parseInt(data[0].userLevel),
+                                userExp: parseInt(data[0].userExp)
+                            });
+                        } else {
+                            setUserStatus({ userName: storedUserName, userLevel: 1, userExp: 0 });
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading user status:', error);
+                    setError('ユーザーステータスの読み込み中にエラーが発生しました。');
+                }
+            };
+
+            const saveUserStatus = async () => {
+                try {
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify([{
+                            userName: userStatus.userName,
+                            userLevel: userStatus.userLevel,
+                            userExp: userStatus.userExp,
+                            lastUpdated: new Date().toISOString()
+                        }]),
+                    });
+                    if (!response.ok) {
+                        throw new Error('Failed to save user status');
+                    }
+                } catch (error) {
+                    console.error('Error saving user status:', error);
+                    setError('ユーザーステータスの保存中にエラーが発生しました。');
+                }
+            };
+
+            const addHabit = async () => {
+                if (!userStatus.userName) {
+                    setError('習慣を追加する前にユーザー名を設定してください。');
+                    return;
+                }
+                try {
+                    const habitToAdd = { ...newHabit, userName: userStatus.userName, streakDays: 0 };
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet1', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify([habitToAdd]),
+                    });
+                    if (response.ok) {
+                        setHabits([habitToAdd, ...habits]);
+                        setNewHabit({ habitName: '', startDate: '', userName: '', lastChecked: '', streakDays: 0 });
+                        playSound('success');
+                    } else {
+                        throw new Error('Failed to add habit');
+                    }
+                } catch (error) {
+                    console.error('Error adding habit:', error);
+                    setError('習慣の追加中にエラーが発生しました。もう一度お試しください。');
+                }
+            };
+
+            const checkHabit = async (habit) => {
+                const today = new Date().toISOString().split('T')[0];
+                const updatedHabit = { 
+                    ...habit, 
+                    lastChecked: today, 
+                    streakDays: habit.lastChecked === yesterday() ? habit.streakDays + 1 : 1 
+                };
+                
+                try {
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet1', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            condition: { habitName: habit.habitName, userName: habit.userName },
+                            set: { lastChecked: updatedHabit.lastChecked, streakDays: updatedHabit.streakDays }
+                        }),
+                    });
+                    
+                    if (response.ok) {
+                        setHabits(habits.map(h => 
+                            h.habitName === habit.habitName && h.userName === habit.userName ? updatedHabit : h
+                        ));
+                        updateUserExp();
+                    } else {
+                        throw new Error('Failed to update habit');
+                    }
+                } catch (error) {
+                    console.error('Error updating habit:', error);
+                    setError('習慣の更新中にエラーが発生しました。もう一度お試しください。');
+                }
+            };
+
+            const updateUserExp = () => {
+                setUserStatus(prevStatus => {
+                    const newExp = prevStatus.userExp + 10;
+                    const expForNextLevel = prevStatus.userLevel * 100;
+                    if (newExp >= expForNextLevel) {
+                        playSound('levelup');
+                        return {
+                            ...prevStatus,
+                            userLevel: prevStatus.userLevel + 1,
+                            userExp: newExp - expForNextLevel
+                        };
+                    } else {
+                        playSound('check');
+                        return {
+                            ...prevStatus,
+                            userExp: newExp
+                        };
+                    }
+                });
+                saveUserStatus();
+            };
+
+            const playSound = (type) => {
+                const audio = new Audio(`https://example.com/sounds/${type}.mp3`);
+                audio.play();
+            };
+
+            const yesterday = () => {
+                const date = new Date();
+                date.setDate(date.getDate() - 1);
+                return date.toISOString().split('T')[0];
+            };
+
+            const filteredHabits = habits.filter(habit => 
+                habit.habitName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                habit.userName.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
+            const setUserName = (name) => {
+                setUserStatus(prevStatus => ({ ...prevStatus, userName: name }));
+                localStorage.setItem('userName', name);
+                saveUserStatus();
+            };
+
+            if (isLoading) {
+                return <div className="text-center mt-8">Loading...</div>;
+            }
+
+            return (
+                <div className="container mx-auto p-4 text-center">
+                    <h1 className="text-4xl font-bold mb-8 text-yellow-400">改善版習慣トラッカーRPG</h1>
+                    
+                    {error && (
+                        <div className="bg-red-800 text-white px-4 py-3 rounded relative mb-4" role="alert">
+                            <span className="block sm:inline">{error}</span>
+                        </div>
+                    )}
+
+                    {!userStatus.userName && (
+                        <div className="mb-8 pixel-border p-4 bg-gray-800">
+                            <h2 className="text-2xl mb-4 text-green-400">ユーザー名を設定</h2>
+                            <input
+                                type="text"
+                                placeholder="ユーザー名"
+                                className="mb-2 p-2 w-full text-black"
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                        setUserName(e.target.value);
+                                    }
+                                }}
+                            />
+                            <button onClick={() => setUserName(document.querySelector('input[type="text"]').value)} className="pixel-button w-full">
+                                設定
+                            </button>
+                        </div>
+                    )}
+
+                    {userStatus.userName && (
+                        <>
+                            <div className="mb-8 pixel-border p-4 bg-gray-800">
+                                <h2 className="text-2xl mb-4 text-green-400">新しい習慣を追加</h2>
+                                <input
+                                    type="text"
+                                    placeholder="習慣名"
+                                    value={newHabit.habitName}
+                                    onChange={(e) => setNewHabit({...newHabit, habitName: e.target.value})}
+                                    className="mb-2 p-2 w-full text-black"
+                                />
+                                <input
+                                    type="date"
+                                    value={newHabit.startDate}
+                                    onChange={(e) => setNewHabit({...newHabit, startDate: e.target.value})}
+                                    className="mb-2 p-2 w-full text-black"
+                                />
+                                <button onClick={addHabit} className="pixel-button w-full">習慣を追加</button>
+                            </div>
+
+                            <div className="mb-8 pixel-border p-4 bg-gray-800">
+                                <h2 className="text-2xl mb-4 text-blue-400">ステータス</h2>
+                                <p>ユーザー名: {userStatus.userName}</p>
+                                <p>レベル: {userStatus.userLevel}</p>
+                                <p>経験値: {userStatus.userExp} / {userStatus.userLevel * 100}</p>
+                                <div className="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-700 mt-2">
+                                    <div 
+                                        className="bg-blue-600 h-2.5 rounded-full" 
+                                        style={{width: `${(userStatus.userExp / (userStatus.userLevel * 100)) * 100}%`}}
+                                    ></div>
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <input
+                                    type="text"
+                                    placeholder="習慣名またはユーザー名で検索"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="p-2 w-full text-black"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filteredHabits.map((habit, index) => (
+                                    <div key={index} className="pixel-border p-4 bg-gray-800">
+                                        <h3 className="text-xl mb-2 text-purple-400">{habit.habitName}</h3>
+                                        <p>開始日: {habit.startDate}</p>
+                                        <p>ユーザー: {habit.userName}</p>
+                                        <p>連続日数: {habit.streakDays}日</p>
+                                        <button 
+                                            onClick={() => checkHabit(habit)} 
+                                            className="pixel-button mt-2"
+                                            disabled={habit.lastChecked === new Date().toISOString().split('T')[0]}
+                                        >
+                                            チェックイン
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+          <React.StrictMode>
+            <ErrorBoundary>
+              <ImprovedHabitTrackerGame />
+            </ErrorBoundary>
+          </React.StrictMode>
+        );
+    </script>
+</body>
+</html>
