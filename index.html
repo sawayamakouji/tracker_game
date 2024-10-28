@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>改善版習慣トラッカーRPG（ステータス保存機能付き）</title>
+    <title>改善版習慣トラッカーRPG（削除機能・ユーザー閲覧機能付き）</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
         body {
             font-family: 'Press Start 2P', cursive;
             background-color: #000;
@@ -39,6 +41,9 @@
         .pixel-button:active {
             background-color: #222;
             transform: scale(0.95);
+        }
+        .dot-gothic {
+            font-family: 'DotGothic16', sans-serif;
         }
     </style>
 </head>
@@ -76,10 +81,13 @@
             const [userStatus, setUserStatus] = React.useState({ userName: '', userLevel: 1, userExp: 0 });
             const [searchTerm, setSearchTerm] = React.useState('');
             const [isLoading, setIsLoading] = React.useState(true);
+            const [viewMode, setViewMode] = React.useState('personal'); // 'personal' or 'all'
+            const [allUsers, setAllUsers] = React.useState([]);
 
             React.useEffect(() => {
                 fetchHabits();
                 loadUserStatus();
+                fetchAllUsers();
             }, []);
 
             const fetchHabits = async () => {
@@ -98,10 +106,25 @@
                     setIsLoading(false);
                 }
             };
-
+            const fetchAllUsers = async () => {
+                try {
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2');
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        setAllUsers(data);
+                    } else {
+                        throw new Error('User data is not an array');
+                    }
+                } catch (error) {
+                    console.error('Error fetching user data:', error);
+                    setError('ユーザーデータの取得中にエラーが発生しました。');
+                }
+            };
+            
             const loadUserStatus = async () => {
                 try {
-                    const storedUserName = localStorage.getItem('userName');
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2');
+                    const data = await response.json();
                     if (storedUserName) {
                         const response = await fetch(`https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2?search={"userName":"${storedUserName}"}`);
                         const data = await response.json();
@@ -121,6 +144,29 @@
                 }
             };
 
+
+            const deleteHabit = async (habit) => {
+                try {
+                    const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet1', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ condition: { habitName: habit.habitName, userName: habit.userName } }),
+                    });
+                    if (response.ok) {
+                        setHabits(habits.filter(h => h.habitName !== habit.habitName || h.userName !== habit.userName));
+                    } else {
+                        throw new Error('Failed to delete habit');
+                    }
+                } catch (error) {
+                    console.error('Error deleting habit:', error);
+                    setError('習慣の削除中にエラーが発生しました。');
+                }
+            };
+
+
+
+
+            
             const saveUserStatus = async () => {
                 try {
                     const response = await fetch('https://api.steinhq.com/v1/storages/67114823c088333365441657/Sheet2', {
